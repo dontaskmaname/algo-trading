@@ -59,9 +59,10 @@ def display_dashboard():
             layout["header"].update(header)
 
             # Info Panel
+            price_text = f"[bold green]{latest_price:.2f}[/bold green]" if isinstance(latest_price, (int, float)) else "N/A"
             info_panel = Panel(
                 Text(
-                    f"NIFTY Price: [bold green]{latest_price:.2f}[/bold green]\n"
+                    f"NIFTY Price: {price_text}\n"
                     f"ML Bias: [bold cyan]{ml_bias}[/bold cyan]",
                     justify="left"
                 ),
