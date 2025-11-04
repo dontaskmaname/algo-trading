@@ -19,7 +19,12 @@ class FyersClient:
         """
         self.client_id = client_id
         self.access_token = access_token
-        self.fyers = fyersModel.FyersModel(client_id=self.client_id, is_async=False, token=self.access_token, log_path=os.path.join(os.path.dirname(__file__), '..', '..', 'logs'))
+
+        log_path_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'logs')
+        if not os.path.exists(log_path_dir):
+            os.makedirs(log_path_dir)
+
+        self.fyers = fyersModel.FyersModel(client_id=self.client_id, is_async=False, token=self.access_token, log_path=log_path_dir)
 
     @staticmethod
     def generate_access_token(client_id: str, secret_key: str, redirect_uri: str, grant_type: str, response_type: str) -> str:

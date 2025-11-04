@@ -99,6 +99,9 @@ def display_dashboard():
             signals_table.add_column("Type", style="magenta")
             signals_table.add_column("Entry", style="green")
             signals_table.add_column("SL", style="red")
+            signals_table.add_column("TP1", style="green")
+            signals_table.add_column("TP2", style="green")
+            signals_table.add_column("TP3", style="green")
             signals_table.add_column("Status", style="blue")
             for signal in signals:
                 signals_table.add_row(
@@ -106,6 +109,9 @@ def display_dashboard():
                     signal.signal_type,
                     f"{signal.entry_price:.2f}",
                     f"{signal.sl:.2f}",
+                    f"{signal.tp1:.2f}",
+                    f"{signal.tp2:.2f}",
+                    f"{signal.tp3:.2f}",
                     signal.status,
                 )
             layout["body"].update(Panel(signals_table, title="Signals"))

@@ -105,6 +105,15 @@ def main():
 
     # 7. Main application loop
     while True:
+        print("Fetching latest market data...")
+        # Fetch the latest 5-minute candle
+        range_to = dt.date.today().strftime('%Y-%m-%d')
+        range_from = (dt.date.today() - dt.timedelta(days=1)).strftime('%Y-%m-%d') # Fetch last day for latest candle
+        hist_data = fyers_client.get_historical_data(symbol, '5', '1', range_from, range_to, '1')
+        if hist_data:
+            fyers_client.store_ohlc_data(hist_data, '5m')
+            print("Latest 5m data fetched and stored.")
+
         print("Generating signals and market data...")
         market_data = generate_signals('5m', 60)
 
@@ -121,6 +130,7 @@ def main():
                 session.close()
                 print(f"Stored signal: {signal.signal_type} at {signal.entry_price}")
 
+        print("Waiting for the next 5-minute interval...")
         time.sleep(300) # Wait for 5 minutes before the next update
 
 if __name__ == '__main__':
