@@ -10,7 +10,7 @@ from src.analytics.indicators import (
 from src.pattern_engine.patterns import *
 from src.machine_learning.model import get_prediction, prepare_data
 
-def backtest_generate_signals(df_interval: pd.DataFrame, df_daily: pd.DataFrame):
+def backtest_generate_signals(df_interval: pd.DataFrame, df_daily: pd.DataFrame, sl_points: int, tp_points: int):
     """
     Generates trading signals and market data based on a combination of analytics, patterns, and ML.
     This is a modified version of the original generate_signals function for backtesting.
@@ -49,10 +49,10 @@ def backtest_generate_signals(df_interval: pd.DataFrame, df_daily: pd.DataFrame)
          last_candle['close'] > levels.get("PMH", float('inf'))) # SR Confluence
     ):
         entry_price = last_candle['close']
-        sl = entry_price - 13
-        tp1 = entry_price + 13
-        tp2 = entry_price + 26
-        tp3 = entry_price + 39
+        sl = entry_price - sl_points
+        tp1 = entry_price + tp_points
+        tp2 = entry_price + (tp_points * 2)
+        tp3 = entry_price + (tp_points * 3)
         signal = Signal(
             timestamp=last_candle.name,
             signal_type='CE',
@@ -74,10 +74,10 @@ def backtest_generate_signals(df_interval: pd.DataFrame, df_daily: pd.DataFrame)
          last_candle['close'] < levels.get("PML", float('-inf'))) # SR Confluence
     ):
         entry_price = last_candle['close']
-        sl = entry_price + 13
-        tp1 = entry_price - 13
-        tp2 = entry_price - 26
-        tp3 = entry_price - 39
+        sl = entry_price + sl_points
+        tp1 = entry_price - tp_points
+        tp2 = entry_price - (tp_points * 2)
+        tp3 = entry_price - (tp_points * 3)
         signal = Signal(
             timestamp=last_candle.name,
             signal_type='PE',
@@ -92,7 +92,7 @@ def backtest_generate_signals(df_interval: pd.DataFrame, df_daily: pd.DataFrame)
         "signal": signal,
     }
 
-def run_backtest():
+def run_backtest(sl_points: int = 13, tp_points: int = 13):
     """
     Runs a backtest of the trading strategy over the last 60 days.
     """
@@ -143,7 +143,7 @@ def run_backtest():
             if df_1d_window.empty:
                 continue
 
-            result = backtest_generate_signals(df_5m_window, df_1d_window)
+            result = backtest_generate_signals(df_5m_window, df_1d_window, sl_points, tp_points)
 
             if result and result['signal']:
                 active_trade = result['signal']
@@ -173,7 +173,7 @@ def run_backtest():
 
     win_rate = (wins / total_trades) * 100 if total_trades > 0 else 0
 
-    print("\n--- Backtest Results ---")
+    print(f"\n--- Backtest Results (SL: {sl_points}, TP: {tp_points}) ---")
     print(f"Total Trades: {total_trades}")
     print(f"Wins: {wins}")
     print(f"Losses: {losses}")
