@@ -56,13 +56,28 @@ def main():
     else:
         print("Not enough data to train the model.")
 
-    # 5. Start the CLI dashboard in a separate thread
+    # 5. Generate initial data before starting dashboard
+    print("Generating initial market data...")
+    initial_market_data = generate_signals('5m', 60)
+    if initial_market_data:
+        data_queue.put(initial_market_data)
+        signal = initial_market_data.get("signal")
+        if signal:
+            session = get_session()
+            session.add(signal)
+            session.commit()
+            session.close()
+            print(f"Stored initial signal: {signal.signal_type} at {signal.entry_price}")
+
+    # 6. Start the CLI dashboard in a separate thread
     dashboard_thread = threading.Thread(target=display_dashboard)
     dashboard_thread.daemon = True
     dashboard_thread.start()
 
-    # 6. Main application loop
+    # 7. Main application loop
     while True:
+        time.sleep(300) # Wait for 5 minutes before the next update
+
         print("Generating signals and market data...")
         market_data = generate_signals('5m', 60)
 
@@ -78,8 +93,6 @@ def main():
                 session.commit()
                 session.close()
                 print(f"Stored signal: {signal.signal_type} at {signal.entry_price}")
-
-        time.sleep(300) # Wait for 5 minutes
 
 if __name__ == '__main__':
     main()
