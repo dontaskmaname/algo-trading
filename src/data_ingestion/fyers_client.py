@@ -13,45 +13,42 @@ class FyersClient:
     A client to interact with the Fyers REST API v3.
     """
 
-    def __init__(self, client_id: str, secret_key: str, redirect_uri: str, grant_type: str, response_type: str):
+    def __init__(self, client_id: str, access_token: str):
         """
         Initializes the FyersClient.
         """
         self.client_id = client_id
-        self.secret_key = secret_key
-        self.redirect_uri = redirect_uri
-        self.grant_type = grant_type
-        self.response_type = response_type
-        self.fyers = None
+        self.access_token = access_token
+        self.fyers = fyersModel.FyersModel(client_id=self.client_id, is_async=False, token=self.access_token, log_path=os.path.join(os.path.dirname(__file__), '..', '..', 'logs'))
 
-    def _generate_auth_code(self):
+    @staticmethod
+    def generate_access_token(client_id: str, secret_key: str, redirect_uri: str, grant_type: str, response_type: str) -> str:
         """
-        Generates the authentication code.
+        Runs the interactive authentication flow to generate an access token.
         """
         session = fyersModel.SessionModel(
-            client_id=self.client_id,
-            secret_key=self.secret_key,
-            redirect_uri=self.redirect_uri,
-            response_type=self.response_type,
-            grant_type=self.grant_type
+            client_id=client_id,
+            secret_key=secret_key,
+            redirect_uri=redirect_uri,
+            response_type=response_type,
+            grant_type=grant_type
         )
         response = session.generate_authcode()
+        print("No access token found. Starting authentication flow.")
+        print(f"Please open this URL in your browser to log in: {response}")
         webbrowser.open(response)
 
-    def _set_access_token(self, auth_code: str):
-        """
-        Sets the access token.
-        """
-        session = fyersModel.SessionModel(
-            client_id=self.client_id,
-            secret_key=self.secret_key,
-            redirect_uri=self.redirect_uri,
-            response_type=self.response_type,
-            grant_type=self.grant_type
-        )
+        auth_code = input("After logging in, you will be redirected to a URL. Paste the `auth_code` from that URL's query parameters here: ")
+
         session.set_token(auth_code)
         response = session.generate_token()
-        self.fyers = fyersModel.FyersModel(client_id=self.client_id, is_async=False, token=response['access_token'], log_path=os.path.join(os.path.dirname(__file__), '..', '..', 'logs'))
+        access_token = response.get('access_token')
+
+        if not access_token:
+            raise Exception(f"Failed to generate access token. Response: {response}")
+
+        print("Access token generated successfully.")
+        return access_token
 
     def get_historical_data(self, symbol: str, resolution: str, date_format: str, range_from: str, range_to: str, cont_flag: str) -> list:
         """
@@ -65,8 +62,16 @@ class FyersClient:
             "range_to": range_to,
             "cont_flag": cont_flag
         }
-        response = self.fyers.history(data)
-        return response['candles']
+        try:
+            response = self.fyers.history(data)
+            if response and response.get('candles'):
+                return response['candles']
+            else:
+                print(f"No data received from Fyers API for {symbol}. Response: {response}")
+                return []
+        except Exception as e:
+            print(f"Error fetching historical data for {symbol}: {e}")
+            return []
 
     def store_ohlc_data(self, data: list, interval: str):
         """
@@ -94,13 +99,10 @@ if __name__ == '__main__':
     # Example usage
     load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', 'auth', '.env'))
     client_id = os.getenv('FYERS_APP_ID')
-    secret_key = os.getenv('FYERS_SECRET_KEY')
-    redirect_uri = os.getenv('FYERS_REDIRECT_URI')
-    grant_type = "authorization_code"
-    response_type = "code"
+    access_token = os.getenv('FYERS_ACCESS_TOKEN')
 
-    if not all([client_id, secret_key, redirect_uri]):
-        print("Error: FYERS_APP_ID, FYERS_SECRET_KEY, and FYERS_REDIRECT_URI must be set in the .env file.")
+    if not all([client_id, access_token]):
+        print("Error: FYERS_APP_ID and FYERS_ACCESS_TOKEN must be set in the .env file.")
     else:
-        client = FyersClient(client_id, secret_key, redirect_uri, grant_type, response_type)
-        print("Fyers client for v3 API created. Authentication flow needs to be completed interactively.")
+        client = FyersClient(client_id, access_token)
+        print("Fyers client for v3 API created successfully.")

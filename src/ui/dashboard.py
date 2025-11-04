@@ -41,7 +41,12 @@ def display_dashboard():
     console = Console()
     layout = make_layout()
 
+    start_time = time.time()
+    data_received = False
     with Live(layout, screen=True, redirect_stderr=False, refresh_per_second=5) as live:
+        latest_price = "N/A"
+        ml_bias = "N/A"
+        levels = {}
         while True:
             # Get the latest data from the queue
             if not data_queue.empty():
@@ -49,25 +54,33 @@ def display_dashboard():
                 latest_price = data.get("latest_price", "N/A")
                 ml_bias = data.get("ml_bias", "N/A")
                 levels = data.get("levels", {})
-            else:
-                latest_price = "N/A"
-                ml_bias = "N/A"
-                levels = {}
+                data_received = True
 
             # Header
             header = Panel(Text(f"NIFTY AI Trading Dashboard | Last Updated: {time.ctime()}", justify="center"))
             layout["header"].update(header)
 
             # Info Panel
-            price_text = f"[bold green]{latest_price:.2f}[/bold green]" if isinstance(latest_price, (int, float)) else "N/A"
-            info_panel = Panel(
-                Text(
-                    f"NIFTY Price: {price_text}\n"
-                    f"ML Bias: [bold cyan]{ml_bias}[/bold cyan]",
-                    justify="left"
-                ),
-                title="Market Info"
-            )
+            if not data_received and (time.time() - start_time) > 30:
+                info_panel = Panel(
+                    Text(
+                        "Waiting for data from the main application...\n"
+                        "If this persists, there may be an issue with data fetching.\n"
+                        "Please check the main console for errors.",
+                        justify="left"
+                    ),
+                    title="[bold yellow]Status[/bold yellow]"
+                )
+            else:
+                price_text = f"[bold green]{latest_price:.2f}[/bold green]" if isinstance(latest_price, (int, float)) else "N/A"
+                info_panel = Panel(
+                    Text(
+                        f"NIFTY Price: {price_text}\n"
+                        f"ML Bias: [bold cyan]{ml_bias}[/bold cyan]",
+                        justify="left"
+                    ),
+                    title="Market Info"
+                )
             layout["info"].update(info_panel)
 
             # Support and Resistance Panel
