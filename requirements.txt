@@ -1,0 +1,8 @@
+fyers-api
+xgboost
+rich
+pandas
+sqlalchemy
+python-dotenv
+numpy
+scikit-learn
