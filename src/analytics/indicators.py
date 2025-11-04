@@ -145,27 +145,46 @@ def calculate_volume_sma(df: pd.DataFrame, window: int = 9) -> pd.Series:
 
     return df['volume'].rolling(window=window).mean()
 
+def get_support_resistance_levels(df_daily: pd.DataFrame) -> dict:
+    """
+    Consolidates all support and resistance levels into a single dictionary.
+
+    Args:
+        df_daily (pd.DataFrame): A DataFrame containing daily OHLC data.
+
+    Returns:
+        dict: A dictionary containing all the support and resistance levels.
+    """
+    if df_daily.empty:
+        return {}
+
+    pdh, pdl = calculate_previous_day_high_low(df_daily)
+    pwh, pwl = calculate_previous_week_high_low(df_daily)
+    pmh, pml = calculate_previous_month_high_low(df_daily)
+    pivots = calculate_camarilla_pivots(df_daily)
+
+    levels = {
+        "PDH": pdh, "PDL": pdl,
+        "PWH": pwh, "PWL": pwl,
+        "PMH": pmh, "PML": pml,
+        **pivots
+    }
+    return levels
+
 if __name__ == '__main__':
     # Example usage
     daily_df = get_ohlc_data('1d', 90) # Fetch last 90 days of daily data
 
     if not daily_df.empty:
-        pdh, pdl = calculate_previous_day_high_low(daily_df)
-        print(f"Previous Day High: {pdh}, Previous Day Low: {pdl}")
-
-        pwh, pwl = calculate_previous_week_high_low(daily_df)
-        print(f"Previous Week High: {pwh}, Previous Week Low: {pwl}")
-
-        pmh, pml = calculate_previous_month_high_low(daily_df)
-        print(f"Previous Month High: {pmh}, Previous Month Low: {pml}")
-
-        pivots = calculate_camarilla_pivots(daily_df)
-        print(f"Camarilla Pivots: {pivots}")
+        levels = get_support_resistance_levels(daily_df)
+        print("Support and Resistance Levels:")
+        for key, value in levels.items():
+            print(f"  {key}: {value:.2f}")
 
         daily_df['vwap'] = calculate_vwap(daily_df)
-        print(f"VWAP:\n{daily_df[['timestamp', 'vwap']].tail()}")
+        print(f"\nVWAP:\n{daily_df[['timestamp', 'vwap']].tail()}")
 
         daily_df['volume_sma'] = calculate_volume_sma(daily_df)
-        print(f"Volume SMA9:\n{daily_df[['timestamp', 'volume_sma']].tail()}")
+        print(f"\nVolume SMA9:\n{daily_df[['timestamp', 'volume_sma']].tail()}")
     else:
         print("No data found in the database.")

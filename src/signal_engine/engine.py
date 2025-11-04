@@ -2,10 +2,7 @@ import pandas as pd
 import datetime as dt
 from src.analytics.indicators import (
     get_ohlc_data,
-    calculate_previous_day_high_low,
-    calculate_previous_week_high_low,
-    calculate_previous_month_high_low,
-    calculate_camarilla_pivots,
+    get_support_resistance_levels,
     calculate_vwap,
     calculate_volume_sma,
 )
@@ -15,48 +12,51 @@ from src.db.database import Signal
 
 def generate_signals(interval: str, days: int):
     """
-    Generates trading signals based on a combination of analytics, patterns, and ML.
+    Generates trading signals and market data based on a combination of analytics, patterns, and ML.
     """
-    df = get_ohlc_data(interval, days)
+    df_interval = get_ohlc_data(interval, days)
+    df_daily = get_ohlc_data('1d', days)
 
-    if df.empty or len(df) < 21:
+    if df_interval.empty or df_daily.empty or len(df_interval) < 21:
         print("Not enough data to generate signals.")
         return None
 
     # 1. Analytics
-    pdh, pdl = calculate_previous_day_high_low(df)
-    pwh, pwl = calculate_previous_week_high_low(df)
-    pmh, pml = calculate_previous_month_high_low(df)
-    pivots = calculate_camarilla_pivots(df)
-    df['vwap'] = calculate_vwap(df)
-    df['volume_sma'] = calculate_volume_sma(df)
+    levels = get_support_resistance_levels(df_daily)
+    df_interval['vwap'] = calculate_vwap(df_interval)
+    df_interval['volume_sma'] = calculate_volume_sma(df_interval)
 
     # 2. Machine Learning
-    X, _ = prepare_data(df)
-    ml_bias = get_prediction(X) # 1 for CE, 0 for PE
+    X, _ = prepare_data(df_daily)
+    ml_bias_int = get_prediction(X) # 1 for CE, 0 for PE
+    ml_bias = "CE" if ml_bias_int == 1 else "PE"
 
     # 3. Pattern Recognition
-    pin_bar = is_pin_bar(df)
-    engulfing = is_engulfing(df)
-    false_breakout = is_false_breakout(df)
+    pin_bar = is_pin_bar(df_interval)
+    engulfing = is_engulfing(df_interval)
+    false_breakout = is_false_breakout(df_interval)
 
     # 4. Signal Generation Logic
-    last_candle = df.iloc[-1]
+    last_candle = df_interval.iloc[-1]
+    latest_price = last_candle['close']
+    signal = None
 
     # Buy Signal (CE)
     if (
-        ml_bias == 1 and
-        last_candle['close'] > df['vwap'].iloc[-1] and
-        last_candle['volume'] > df['volume_sma'].iloc[-1] and
+        ml_bias == "CE" and
+        last_candle['close'] > df_interval['vwap'].iloc[-1] and
+        last_candle['volume'] > df_interval['volume_sma'].iloc[-1] and
         (pin_bar or engulfing == "bullish" or false_breakout == "bearish") and
-        (last_candle['close'] > pdh or last_candle['close'] > pwh or last_candle['close'] > pmh) # SR Confluence
+        (last_candle['close'] > levels.get("PDH", float('inf')) or
+         last_candle['close'] > levels.get("PWH", float('inf')) or
+         last_candle['close'] > levels.get("PMH", float('inf'))) # SR Confluence
     ):
         entry_price = last_candle['close']
         sl = entry_price - 13
         tp1 = entry_price + 13
         tp2 = entry_price + 26
         tp3 = entry_price + 39
-        return Signal(
+        signal = Signal(
             timestamp=dt.datetime.now(),
             signal_type='CE',
             entry_price=entry_price,
@@ -68,18 +68,20 @@ def generate_signals(interval: str, days: int):
 
     # Sell Signal (PE)
     elif (
-        ml_bias == 0 and
-        last_candle['close'] < df['vwap'].iloc[-1] and
-        last_candle['volume'] > df['volume_sma'].iloc[-1] and
+        ml_bias == "PE" and
+        last_candle['close'] < df_interval['vwap'].iloc[-1] and
+        last_candle['volume'] > df_interval['volume_sma'].iloc[-1] and
         (pin_bar or engulfing == "bearish" or false_breakout == "bullish") and
-        (last_candle['close'] < pdl or last_candle['close'] < pwl or last_candle['close'] < pml) # SR Confluence
+        (last_candle['close'] < levels.get("PDL", float('-inf')) or
+         last_candle['close'] < levels.get("PWL", float('-inf')) or
+         last_candle['close'] < levels.get("PML", float('-inf'))) # SR Confluence
     ):
         entry_price = last_candle['close']
         sl = entry_price + 13
         tp1 = entry_price - 13
         tp2 = entry_price - 26
         tp3 = entry_price - 39
-        return Signal(
+        signal = Signal(
             timestamp=dt.datetime.now(),
             signal_type='PE',
             entry_price=entry_price,
@@ -88,12 +90,18 @@ def generate_signals(interval: str, days: int):
             tp3=tp3,
             sl=sl,
         )
-    else:
-        return None
+
+    return {
+        "signal": signal,
+        "latest_price": latest_price,
+        "ml_bias": ml_bias,
+        "levels": levels
+    }
 
 if __name__ == '__main__':
-    signal = generate_signals('5m', 60)
-    if signal:
+    result = generate_signals('5m', 60)
+    if result and result['signal']:
+        signal = result['signal']
         print(f"Generated Signal: {signal.signal_type} at {signal.entry_price}")
     else:
         print("No signal generated.")
