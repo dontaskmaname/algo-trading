@@ -8,14 +8,6 @@ import webbrowser
 
 from src.db.database import OHLC, engine
 
-# Load environment variables
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', 'auth', '.env'))
-client_id = os.getenv('FYERS_APP_ID')
-secret_key = "YOUR_SECRET_KEY"  # Replace with your secret key
-redirect_uri = "YOUR_REDIRECT_URI"  # Replace with your redirect URI
-grant_type = "authorization_code"
-response_type = "code"
-
 class FyersClient:
     """
     A client to interact with the Fyers REST API v3.
@@ -100,23 +92,15 @@ class FyersClient:
 
 if __name__ == '__main__':
     # Example usage
-    client = FyersClient(client_id, secret_key, redirect_uri, grant_type, response_type)
-    # The following lines are for demonstration and will not run in a non-interactive environment
-    # client._generate_auth_code()
-    # auth_code = input("Enter the auth code: ")
-    # client._set_access_token(auth_code)
+    load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', 'auth', '.env'))
+    client_id = os.getenv('FYERS_APP_ID')
+    secret_key = os.getenv('FYERS_SECRET_KEY')
+    redirect_uri = os.getenv('FYERS_REDIRECT_URI')
+    grant_type = "authorization_code"
+    response_type = "code"
 
-    # # Fetch data for the last 60 days
-    # range_to = dt.date.today().strftime('%Y-%m-%d')
-    # range_from = (dt.date.today() - dt.timedelta(days=60)).strftime('%Y-%m-%d')
-
-    # # NIFTY 50 symbol
-    # symbol = 'NSE:NIFTY50-INDEX'
-
-    # # Fetch and store data for different intervals
-    # for res, interval in [('5', '5m'), ('15', '15m'), ('60', '1h'), ('D', '1d')]:
-    #     print(f'Fetching {interval} data...')
-    #     hist_data = client.get_historical_data(symbol, res, '1', range_from, range_to, '1')
-    #     client.store_ohlc_data(hist_data, interval)
-    #     print(f'Stored {len(hist_data)} records for {interval} interval.')
-    print("Fyers client for v3 API created. Authentication flow needs to be completed interactively.")
+    if not all([client_id, secret_key, redirect_uri]):
+        print("Error: FYERS_APP_ID, FYERS_SECRET_KEY, and FYERS_REDIRECT_URI must be set in the .env file.")
+    else:
+        client = FyersClient(client_id, secret_key, redirect_uri, grant_type, response_type)
+        print("Fyers client for v3 API created. Authentication flow needs to be completed interactively.")

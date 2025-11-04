@@ -4,7 +4,12 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
 # Define the database path
-db_path = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'nifty_ai.db')
+data_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'data')
+db_path = os.path.join(data_dir, 'nifty_ai.db')
+
+# Ensure the data directory exists
+os.makedirs(data_dir, exist_ok=True)
+
 db_uri = f'sqlite:///{db_path}'
 
 # Create the engine
