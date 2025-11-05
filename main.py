@@ -93,7 +93,7 @@ def main():
 
     # 4. Run the daily retraining pipeline
     print("Running daily retraining pipeline...")
-    df_daily = get_ohlc_data('1d', 60, nifty_symbol)
+    df_daily = get_ohlc_data('1d', 365*5, nifty_symbol) # Use 5 years of data for training
     if not df_daily.empty and len(df_daily) > 21:
         X, y = prepare_data(df_daily)
         train_model(X, y)
