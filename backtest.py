@@ -9,144 +9,105 @@ from src.analytics.indicators import (
 )
 from src.pattern_engine.patterns import *
 from src.machine_learning.model import get_prediction, prepare_data
+from src.signal_engine.engine import pullback_strategy, candle_body_filter
+from src.db.database import Performance
 
-def backtest_generate_signals(df_interval: pd.DataFrame, df_daily: pd.DataFrame, sl_points: int, tp_points: int):
-    """
-    Generates trading signals and market data based on a combination of analytics, patterns, and ML.
-    This is a modified version of the original generate_signals function for backtesting.
-    """
-    if df_interval.empty or df_daily.empty or len(df_interval) < 21:
-        return None
+def log_trade(session, trade: Signal, exit_price: float, exit_timestamp: dt.datetime):
+    """Logs a completed trade to the performance table."""
+    pnl = 0
+    if trade.signal_type == 'CE':
+        pnl = exit_price - trade.entry_price
+    else:
+        pnl = trade.entry_price - exit_price
 
-    # 1. Analytics
-    levels = get_support_resistance_levels(df_daily)
-    df_interval.loc[:, 'vwap'] = calculate_vwap(df_interval)
-    df_interval.loc[:, 'volume_sma'] = calculate_volume_sma(df_interval)
+    performance_log = Performance(
+        signal_id=int(trade.timestamp.timestamp()),
+        pnl=pnl,
+        exit_price=exit_price,
+        exit_timestamp=exit_timestamp,
+    )
+    session.add(performance_log)
+    session.commit()
 
-    # 2. Machine Learning
-    X, _ = prepare_data(df_daily)
-    ml_bias_int = get_prediction(X) # 1 for CE, 0 for PE
-    ml_bias = "CE" if ml_bias_int == 1 else "PE"
-
-    # 3. Pattern Recognition
-    pin_bar = is_pin_bar(df_interval)
-    engulfing = is_engulfing(df_interval)
-    false_breakout = is_false_breakout(df_interval)
-
-    # 4. Signal Generation Logic
-    last_candle = df_interval.iloc[-1]
-    latest_price = last_candle['close']
-    signal = None
-
-    # Buy Signal (CE)
-    if (
-        ml_bias == "CE" and
-        last_candle['close'] > df_interval['vwap'].iloc[-1] and
-        last_candle['volume'] > df_interval['volume_sma'].iloc[-1] and
-        (pin_bar or engulfing == "bullish" or false_breakout == "bearish") and
-        (last_candle['close'] > levels.get("PDH", float('inf')) or
-         last_candle['close'] > levels.get("PWH", float('inf')) or
-         last_candle['close'] > levels.get("PMH", float('inf'))) # SR Confluence
-    ):
-        entry_price = last_candle['close']
-        sl = entry_price - sl_points
-        tp1 = entry_price + tp_points
-        tp2 = entry_price + (tp_points * 2)
-        tp3 = entry_price + (tp_points * 3)
-        signal = Signal(
-            timestamp=last_candle.name,
-            signal_type='CE',
-            entry_price=entry_price,
-            tp1=tp1,
-            tp2=tp2,
-            tp3=tp3,
-            sl=sl,
-        )
-
-    # Sell Signal (PE)
-    elif (
-        ml_bias == "PE" and
-        last_candle['close'] < df_interval['vwap'].iloc[-1] and
-        last_candle['volume'] > df_interval['volume_sma'].iloc[-1] and
-        (pin_bar or engulfing == "bearish" or false_breakout == "bullish") and
-        (last_candle['close'] < levels.get("PDL", float('-inf')) or
-         last_candle['close'] < levels.get("PWL", float('-inf')) or
-         last_candle['close'] < levels.get("PML", float('-inf'))) # SR Confluence
-    ):
-        entry_price = last_candle['close']
-        sl = entry_price + sl_points
-        tp1 = entry_price - tp_points
-        tp2 = entry_price - (tp_points * 2)
-        tp3 = entry_price - (tp_points * 3)
-        signal = Signal(
-            timestamp=last_candle.name,
-            signal_type='PE',
-            entry_price=entry_price,
-            tp1=tp1,
-            tp2=tp2,
-            tp3=tp3,
-            sl=sl,
-        )
-
-    return {
-        "signal": signal,
-    }
-
-def run_backtest(sl_points: int = 13, tp_points: int = 13):
+def run_backtest(sl_points: int = 15, tp_ratio: float = 1.0):
     """
     Runs a backtest of the trading strategy over the last 60 days.
     """
-    print("Starting backtest...")
+    print(f"Starting backtest...")
+
+    session = get_session()
 
     # 1. Load historical data
-    df_5m = get_ohlc_data('5m', 60)
-    df_1d = get_ohlc_data('1d', 60)
-    df_1d.index = pd.to_datetime(df_1d.index)
-    if df_5m.empty or df_1d.empty:
+    nifty_5m = get_ohlc_data('5m', 60, "NIFTY_F1")
+    nifty_1d = get_ohlc_data('1d', 365*5, "NIFTY_F1")
+    banknifty_5m = get_ohlc_data('5m', 60, "BANKNIFTY_F1")
+
+    if nifty_5m.empty or nifty_1d.empty or banknifty_5m.empty:
         print("No historical data found. Please run the main application first to fetch data.")
         return
 
-    print(f"Loaded {len(df_5m)} 5m data points and {len(df_1d)} daily data points for backtesting.")
+    nifty_5m['volume'] = banknifty_5m['volume']
+    nifty_1d.index = pd.to_datetime(nifty_1d.index)
+
+    print(f"Loaded {len(nifty_5m)} 5m data points for backtesting.")
 
     trades = []
     active_trade = None
-    for i in range(21, len(df_5m)):
-        current_candle = df_5m.iloc[i]
+    for i in range(50, len(nifty_5m)): # Start from 50 to have enough data for EMAs
+        current_candle = nifty_5m.iloc[i]
 
         # Check if an active trade should be closed
         if active_trade:
+            exit_price = None
+            exit_timestamp = None
+
             if active_trade.signal_type == 'CE':
                 if current_candle['high'] >= active_trade.tp1:
                     active_trade.status = 'TP1'
-                    trades.append(active_trade)
-                    active_trade = None
+                    exit_price = active_trade.tp1
+                    exit_timestamp = pd.to_datetime(current_candle.name)
                 elif current_candle['low'] <= active_trade.sl:
                     active_trade.status = 'SL'
-                    trades.append(active_trade)
-                    active_trade = None
+                    exit_price = active_trade.sl
+                    exit_timestamp = pd.to_datetime(current_candle.name)
+
             elif active_trade.signal_type == 'PE':
                 if current_candle['low'] <= active_trade.tp1:
                     active_trade.status = 'TP1'
-                    trades.append(active_trade)
-                    active_trade = None
+                    exit_price = active_trade.tp1
+                    exit_timestamp = pd.to_datetime(current_candle.name)
                 elif current_candle['high'] >= active_trade.sl:
                     active_trade.status = 'SL'
-                    trades.append(active_trade)
-                    active_trade = None
+                    exit_price = active_trade.sl
+                    exit_timestamp = pd.to_datetime(current_candle.name)
+
+            if exit_price is not None:
+                log_trade(session, active_trade, exit_price, exit_timestamp)
+                trades.append(active_trade)
+                active_trade = None
 
         # If no trade is active, check for a new signal
         if not active_trade:
-            df_5m_window = df_5m.iloc[i-21:i]
+            df_5m_window = nifty_5m.iloc[i-50:i]
             current_day = pd.to_datetime(df_5m_window.index[-1]).date()
-            df_1d_window = df_1d[df_1d.index.date <= current_day]
+            df_1d_window = nifty_1d[nifty_1d.index.date <= current_day]
 
             if df_1d_window.empty:
                 continue
 
-            result = backtest_generate_signals(df_5m_window, df_1d_window, sl_points, tp_points)
+            # Get ML Bias
+            X, _ = prepare_data(df_1d_window)
+            ml_bias_int = get_prediction(X)
+            ml_bias = "CE" if ml_bias_int == 1 else "PE"
 
-            if result and result['signal']:
-                active_trade = result['signal']
+            last_price = df_5m_window.iloc[-1]['close']
+            levels = get_support_resistance_levels(df_1d_window, last_price)
+            signal = pullback_strategy(df_5m_window)
+
+            if signal and signal.signal_type == ml_bias and candle_body_filter(df_5m_window):
+                signal.sl = signal.entry_price - sl_points if signal.signal_type == 'CE' else signal.entry_price + sl_points
+                signal.tp1 = signal.entry_price + (sl_points * tp_ratio) if signal.signal_type == 'CE' else signal.entry_price - (sl_points * tp_ratio)
+                active_trade = signal
                 active_trade.status = 'ACTIVE'
 
     print(f"Completed backtest. Total trades simulated: {len(trades)}")
@@ -173,7 +134,7 @@ def run_backtest(sl_points: int = 13, tp_points: int = 13):
 
     win_rate = (wins / total_trades) * 100 if total_trades > 0 else 0
 
-    print(f"\n--- Backtest Results (SL: {sl_points}, TP: {tp_points}) ---")
+    print(f"\n--- Backtest Results (SL: {sl_points}, TP Ratio: {tp_ratio}) ---")
     print(f"Total Trades: {total_trades}")
     print(f"Wins: {wins}")
     print(f"Losses: {losses}")
@@ -181,5 +142,9 @@ def run_backtest(sl_points: int = 13, tp_points: int = 13):
     print(f"Total P/L (in points): {total_pnl:.2f}")
     print("------------------------\n")
 
+    session.commit()
+    session.close()
+    print("Backtest results saved to the performance table.")
+
 if __name__ == '__main__':
-    run_backtest()
+    run_backtest(sl_points=15, tp_ratio=1.0)

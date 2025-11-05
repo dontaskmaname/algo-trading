@@ -26,7 +26,15 @@ def main():
         print("Error: FYERS_APP_ID must be set in the .env file.")
         return
 
-    if not access_token:
+    fyers_client = None
+    if access_token:
+        fyers_client = FyersClient(client_id, access_token)
+        # Check if the token is valid by making a test call
+        if not fyers_client.get_historical_data('NSE:NIFTY50-INDEX', 'D', '1', (dt.date.today() - dt.timedelta(days=1)).strftime('%Y-%m-%d'), dt.date.today().strftime('%Y-%m-%d'), '1'):
+            print("Access token seems to be invalid or expired. Re-authenticating...")
+            fyers_client = None # Reset client to trigger re-authentication
+
+    if not fyers_client:
         secret_key = os.getenv('FYERS_SECRET_KEY')
         redirect_uri = os.getenv('FYERS_REDIRECT_URI')
         if not all([secret_key, redirect_uri]):
@@ -34,38 +42,45 @@ def main():
             return
 
         try:
-            access_token = FyersClient.generate_access_token(
+            new_access_token = FyersClient.generate_access_token(
                 client_id=client_id,
                 secret_key=secret_key,
                 redirect_uri=redirect_uri,
                 grant_type="authorization_code",
                 response_type="code"
             )
-            print("\n" + "="*50)
-            print("IMPORTANT: Authentication successful!")
-            print(f"Your new access token is: {access_token}")
-            print("Please save this token in your .env file as `FYERS_ACCESS_TOKEN`.")
-            print("The application will now exit. Please restart it after updating the .env file.")
-            print("="*50 + "\n")
+            # Save the new token to the .env file
+            with open(dotenv_path, "a") as f:
+                f.write(f"\nFYERS_ACCESS_TOKEN={new_access_token}")
+
+            fyers_client = FyersClient(client_id, new_access_token)
+            print("Authentication successful and new token saved.")
+
         except Exception as e:
             print(f"Authentication failed: {e}")
-        return
+            return
 
-    fyers_client = FyersClient(client_id, access_token)
     print("Fyers client initialized and authenticated successfully.")
 
     # 3. Fetch initial historical data
     print("Fetching initial historical data...")
     range_to = dt.date.today().strftime('%Y-%m-%d')
     range_from = (dt.date.today() - dt.timedelta(days=60)).strftime('%Y-%m-%d')
-    symbol = 'NSE:NIFTY50-INDEX'
+    nifty_symbol = 'NSE:NIFTY50-INDEX'
+    banknifty_futures_symbol = 'NSE:BANKNIFTY25NOVFUT'
+
     initial_data_fetched = False
     for res, interval in [('5', '5m'), ('15', '15m'), ('60', '1h'), ('D', '1d')]:
-        print(f"Fetching {interval} data...")
-        hist_data = fyers_client.get_historical_data(symbol, res, '1', range_from, range_to, '1')
+        print(f"Fetching {interval} data for {nifty_symbol}...")
+        hist_data = fyers_client.get_historical_data(nifty_symbol, res, '1', range_from, range_to, '1')
         if hist_data:
-            fyers_client.store_ohlc_data(hist_data, interval)
+            fyers_client.store_ohlc_data(hist_data, interval, nifty_symbol)
             initial_data_fetched = True
+
+        print(f"Fetching {interval} data for {banknifty_futures_symbol}...")
+        hist_data_futures = fyers_client.get_historical_data(banknifty_futures_symbol, res, '1', range_from, range_to, '1')
+        if hist_data_futures:
+            fyers_client.store_ohlc_data(hist_data_futures, interval, banknifty_futures_symbol)
 
     if not initial_data_fetched:
         print("\n" + "="*50)
@@ -78,7 +93,7 @@ def main():
 
     # 4. Run the daily retraining pipeline
     print("Running daily retraining pipeline...")
-    df_daily = get_ohlc_data('1d', 60)
+    df_daily = get_ohlc_data('1d', 60, nifty_symbol)
     if not df_daily.empty and len(df_daily) > 21:
         X, y = prepare_data(df_daily)
         train_model(X, y)
@@ -87,7 +102,10 @@ def main():
 
     # 5. Generate initial data before starting dashboard
     print("Generating initial market data...")
-    initial_market_data = generate_signals('5m', 60)
+    nifty_5m = get_ohlc_data('5m', 60, nifty_symbol)
+    nifty_1d = get_ohlc_data('1d', 60, nifty_symbol)
+    banknifty_5m = get_ohlc_data('5m', 60, banknifty_futures_symbol)
+    initial_market_data = generate_signals(nifty_5m, nifty_1d, banknifty_5m)
     if initial_market_data:
         data_queue.put(initial_market_data)
         signal = initial_market_data.get("signal")
@@ -109,13 +127,21 @@ def main():
         # Fetch the latest 5-minute candle
         range_to = dt.date.today().strftime('%Y-%m-%d')
         range_from = (dt.date.today() - dt.timedelta(days=1)).strftime('%Y-%m-%d') # Fetch last day for latest candle
-        hist_data = fyers_client.get_historical_data(symbol, '5', '1', range_from, range_to, '1')
+        hist_data = fyers_client.get_historical_data(nifty_symbol, '5', '1', range_from, range_to, '1')
         if hist_data:
-            fyers_client.store_ohlc_data(hist_data, '5m')
-            print("Latest 5m data fetched and stored.")
+            fyers_client.store_ohlc_data(hist_data, '5m', nifty_symbol)
+            print("Latest Nifty 5m data fetched and stored.")
+
+        hist_data_futures = fyers_client.get_historical_data(banknifty_futures_symbol, '5', '1', range_from, range_to, '1')
+        if hist_data_futures:
+            fyers_client.store_ohlc_data(hist_data_futures, '5m', banknifty_futures_symbol)
+            print("Latest Bank Nifty Futures 5m data fetched and stored.")
 
         print("Generating signals and market data...")
-        market_data = generate_signals('5m', 60)
+        nifty_5m = get_ohlc_data('5m', 60, nifty_symbol)
+        nifty_1d = get_ohlc_data('1d', 60, nifty_symbol)
+        banknifty_5m = get_ohlc_data('5m', 60, banknifty_futures_symbol)
+        market_data = generate_signals(nifty_5m, nifty_1d, banknifty_5m)
 
         if market_data:
             # Always pass the latest market data to the dashboard

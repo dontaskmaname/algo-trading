@@ -1,21 +1,22 @@
 import pandas as pd
 from sqlalchemy.orm import sessionmaker
-from src.db.database import OHLC, engine
+from src.db.database import OHLC, engine, ManualLevel
 
-def get_ohlc_data(interval: str, days: int) -> pd.DataFrame:
+def get_ohlc_data(interval: str, days: int, symbol: str) -> pd.DataFrame:
     """
     Fetches OHLC data from the database.
 
     Args:
         interval (str): The interval of the data (e.g., '1d', '1h').
         days (int): The number of days to fetch data for.
+        symbol (str): The symbol to fetch data for.
 
     Returns:
         pd.DataFrame: A DataFrame containing the OHLC data.
     """
     Session = sessionmaker(bind=engine)
     session = Session()
-    query = session.query(OHLC).filter(OHLC.interval == interval).statement
+    query = session.query(OHLC).filter(OHLC.interval == interval, OHLC.symbol == symbol).statement
     df = pd.read_sql(query, engine)
     session.close()
 
@@ -145,12 +146,57 @@ def calculate_volume_sma(df: pd.DataFrame, window: int = 9) -> pd.Series:
 
     return df['volume'].rolling(window=window).mean()
 
-def get_support_resistance_levels(df_daily: pd.DataFrame) -> dict:
+def find_swing_high_low(df: pd.DataFrame, lookback: int = 5) -> tuple:
+    """
+    Finds the most recent swing high and swing low.
+
+    Args:
+        df (pd.DataFrame): A DataFrame containing OHLC data.
+        lookback (int): The number of bars to look back on either side.
+
+    Returns:
+        tuple: A tuple containing the swing high and swing low.
+    """
+    if len(df) < lookback * 2 + 1:
+        return None, None
+
+    swing_high = None
+    swing_low = None
+
+    for i in range(len(df) - lookback -1, lookback, -1):
+        is_swing_high = True
+        is_swing_low = True
+        for j in range(1, lookback + 1):
+            if df['high'].iloc[i] < df['high'].iloc[i - j] or df['high'].iloc[i] < df['high'].iloc[i + j]:
+                is_swing_high = False
+            if df['low'].iloc[i] > df['low'].iloc[i - j] or df['low'].iloc[i] > df['low'].iloc[i + j]:
+                is_swing_low = False
+
+        if is_swing_high and not swing_high:
+            swing_high = df['high'].iloc[i]
+        if is_swing_low and not swing_low:
+            swing_low = df['low'].iloc[i]
+
+        if swing_high and swing_low:
+            break
+
+    return swing_high, swing_low
+
+def calculate_psychological_levels(price: float, step: int = 50) -> dict:
+    """
+    Calculates psychological round-number levels.
+    """
+    lower_level = price - (price % step)
+    upper_level = lower_level + step
+    return {'PSYCH_S': lower_level, 'PSYCH_R': upper_level}
+
+def get_support_resistance_levels(df_daily: pd.DataFrame, current_price: float) -> dict:
     """
     Consolidates all support and resistance levels into a single dictionary.
 
     Args:
         df_daily (pd.DataFrame): A DataFrame containing daily OHLC data.
+        current_price (float): The current market price.
 
     Returns:
         dict: A dictionary containing all the support and resistance levels.
@@ -158,18 +204,58 @@ def get_support_resistance_levels(df_daily: pd.DataFrame) -> dict:
     if df_daily.empty:
         return {}
 
+    # Fetch manual levels
+    session = sessionmaker(bind=engine)()
+    manual_levels = session.query(ManualLevel).all()
+    session.close()
+
+    manual_supports = [level.price for level in manual_levels if level.level_type == 'support']
+    manual_resistances = [level.price for level in manual_levels if level.level_type == 'resistance']
+
+    # Auto-calculated levels
     pdh, pdl = calculate_previous_day_high_low(df_daily)
     pwh, pwl = calculate_previous_week_high_low(df_daily)
     pmh, pml = calculate_previous_month_high_low(df_daily)
     pivots = calculate_camarilla_pivots(df_daily)
+    psych_levels = calculate_psychological_levels(current_price)
 
     levels = {
         "PDH": pdh, "PDL": pdl,
         "PWH": pwh, "PWL": pwl,
         "PMH": pmh, "PML": pml,
-        **pivots
+        **pivots,
+        **psych_levels
     }
+
+    # Give priority to manual levels
+    if manual_supports:
+        levels['MANUAL_S'] = manual_supports
+    if manual_resistances:
+        levels['MANUAL_R'] = manual_resistances
+
     return levels
+
+def calculate_fibonacci_retracement(df: pd.DataFrame) -> dict:
+    """
+    Calculates Fibonacci retracement levels.
+    """
+    swing_high, swing_low = find_swing_high_low(df)
+
+    if swing_high is None or swing_low is None:
+        return {}
+
+    price_range = swing_high - swing_low
+
+    return {
+        'FIB_S_236': swing_high - (price_range * 0.236),
+        'FIB_S_382': swing_high - (price_range * 0.382),
+        'FIB_S_500': swing_high - (price_range * 0.5),
+        'FIB_S_618': swing_high - (price_range * 0.618),
+        'FIB_R_236': swing_low + (price_range * 0.236),
+        'FIB_R_382': swing_low + (price_range * 0.382),
+        'FIB_R_500': swing_low + (price_range * 0.5),
+        'FIB_R_618': swing_low + (price_range * 0.618),
+    }
 
 if __name__ == '__main__':
     # Example usage

@@ -30,19 +30,39 @@ def is_doji(df: pd.DataFrame, tolerance: float = 0.05) -> bool:
     price_range = last_candle['high'] - last_candle['low']
     return body / price_range < tolerance if price_range > 0 else False
 
-def is_dragonfly_doji(df: pd.DataFrame) -> bool:
-    """Detects a dragonfly doji."""
-    if df.empty:
+def is_dragonfly_doji(df: pd.DataFrame, tolerance: float = 0.05) -> bool:
+    """Detects a dragonfly doji with some tolerance."""
+    if not is_doji(df, tolerance):
         return False
     last_candle = df.iloc[-1]
-    return is_doji(df) and (last_candle['open'] > last_candle['low']) and (last_candle['open'] == last_candle['high'])
+    return abs(last_candle['open'] - last_candle['high']) / (last_candle['high'] - last_candle['low']) < tolerance
 
-def is_gravestone_doji(df: pd.DataFrame) -> bool:
-    """Detects a gravestone doji."""
+def is_gravestone_doji(df: pd.DataFrame, tolerance: float = 0.05) -> bool:
+    """Detects a gravestone doji with some tolerance."""
+    if not is_doji(df, tolerance):
+        return False
+    last_candle = df.iloc[-1]
+    return abs(last_candle['open'] - last_candle['low']) / (last_candle['high'] - last_candle['low']) < tolerance
+
+def is_hammer(df: pd.DataFrame) -> bool:
+    """Detects a hammer pattern (bullish pin bar)."""
     if df.empty:
         return False
     last_candle = df.iloc[-1]
-    return is_doji(df) and (last_candle['open'] < last_candle['high']) and (last_candle['open'] == last_candle['low'])
+    body = abs(last_candle['close'] - last_candle['open'])
+    lower_wick = last_candle['open'] - last_candle['low'] if last_candle['open'] < last_candle['close'] else last_candle['close'] - last_candle['low']
+    upper_wick = last_candle['high'] - last_candle['close'] if last_candle['open'] < last_candle['close'] else last_candle['high'] - last_candle['open']
+    return lower_wick > body * 2 and upper_wick < body
+
+def is_shooting_star(df: pd.DataFrame) -> bool:
+    """Detects a shooting star pattern (bearish pin bar)."""
+    if df.empty:
+        return False
+    last_candle = df.iloc[-1]
+    body = abs(last_candle['close'] - last_candle['open'])
+    lower_wick = last_candle['open'] - last_candle['low'] if last_candle['open'] < last_candle['close'] else last_candle['close'] - last_candle['low']
+    upper_wick = last_candle['high'] - last_candle['close'] if last_candle['open'] < last_candle['close'] else last_candle['high'] - last_candle['open']
+    return upper_wick > body * 2 and lower_wick < body
 
 def is_morning_star(df: pd.DataFrame) -> bool:
     """Detects a morning star pattern."""

@@ -6,7 +6,7 @@ import pandas as pd
 from sqlalchemy.orm import sessionmaker
 import webbrowser
 
-from src.db.database import OHLC, engine
+from src.db.database import OHLC, engine, clear_ohlc_data
 
 class FyersClient:
     """
@@ -78,7 +78,7 @@ class FyersClient:
             print(f"Error fetching historical data for {symbol}: {e}")
             return []
 
-    def store_ohlc_data(self, data: list, interval: str):
+    def store_ohlc_data(self, data: list, interval: str, symbol: str):
         """
         Stores OHLC data in the database.
         """
@@ -93,7 +93,8 @@ class FyersClient:
                 low=row[3],
                 close=row[4],
                 volume=row[5],
-                interval=interval
+                interval=interval,
+                symbol=symbol
             )
             session.add(ohlc_data)
 
@@ -111,3 +112,49 @@ if __name__ == '__main__':
     else:
         client = FyersClient(client_id, access_token)
         print("Fyers client for v3 API created successfully.")
+
+        # Clear existing OHLC data before fetching new data
+        print("Clearing existing OHLC data...")
+        clear_ohlc_data()
+        print("OHLC data cleared.")
+
+        # --- Fetch Daily Nifty Data (5 years) ---
+        nifty_daily_symbol = "NSE:NIFTY50-INDEX"
+        print(f"\n--- Fetching 5 years of daily data for {nifty_daily_symbol} ---")
+        today = dt.date.today()
+        for i in range(5):
+            range_to = today - dt.timedelta(days=i*365)
+            range_from = today - dt.timedelta(days=(i+1)*365)
+
+            print(f"Fetching data from {range_from} to {range_to}...")
+            historical_data = client.get_historical_data(nifty_daily_symbol, "D", "1", range_from.strftime('%Y-%m-%d'), range_to.strftime('%Y-%m-%d'), "1")
+
+            if historical_data:
+                print(f"Storing {len(historical_data)} records...")
+                client.store_ohlc_data(historical_data, '1d', "NIFTY_F1")
+                print("Data stored successfully.")
+
+            import time
+            time.sleep(1)
+
+        # --- Fetch 5-min Nifty Data (60 days) ---
+        nifty_5m_symbol = "NSE:NIFTY50-INDEX"
+        print(f"\n--- Fetching 60 days of 5-min data for {nifty_5m_symbol} ---")
+        range_to_5m = dt.date.today().strftime('%Y-%m-%d')
+        range_from_5m = (dt.date.today() - dt.timedelta(days=60)).strftime('%Y-%m-%d')
+        print(f"Fetching data from {range_from_5m} to {range_to_5m}...")
+        historical_data_5m = client.get_historical_data(nifty_5m_symbol, "5", "1", range_from_5m, range_to_5m, "1")
+        if historical_data_5m:
+            print(f"Storing {len(historical_data_5m)} records...")
+            client.store_ohlc_data(historical_data_5m, '5m', "NIFTY_F1")
+            print("Data stored successfully.")
+
+        # --- Fetch 5-min Bank Nifty Data (60 days) ---
+        banknifty_5m_symbol = "NSE:NIFTYBANK-INDEX"
+        print(f"\n--- Fetching 60 days of 5-min data for {banknifty_5m_symbol} ---")
+        print(f"Fetching data from {range_from_5m} to {range_to_5m}...")
+        historical_data_bn_5m = client.get_historical_data(banknifty_5m_symbol, "5", "1", range_from_5m, range_to_5m, "1")
+        if historical_data_bn_5m:
+            print(f"Storing {len(historical_data_bn_5m)} records...")
+            client.store_ohlc_data(historical_data_bn_5m, '5m', "BANKNIFTY_F1")
+            print("Data stored successfully.")

@@ -4,14 +4,16 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import joblib
 import os
+import talib
 from src.analytics.indicators import get_ohlc_data
 
-def prepare_data(df: pd.DataFrame) -> tuple:
+def prepare_data(df: pd.DataFrame, future_periods: int = 5) -> tuple:
     """
-    Prepares the data for the XGBoost model.
+    Prepares the data for the XGBoost model with advanced feature engineering.
 
     Args:
         df (pd.DataFrame): The OHLC data.
+        future_periods (int): The number of periods to look ahead for the target.
 
     Returns:
         tuple: A tuple containing the features (X) and target (y).
@@ -20,14 +22,25 @@ def prepare_data(df: pd.DataFrame) -> tuple:
     df['returns'] = df['close'].pct_change()
     df['volatility'] = df['returns'].rolling(window=20).std()
 
-    # Create a synthetic target variable (CE/PE bias)
-    # 1 for CE (upward bias), 0 for PE (downward bias)
-    df['target'] = (df['close'] > df['close'].shift(1)).astype(int)
+    # TA-Lib Indicators
+    df['rsi'] = talib.RSI(df['close'])
+    df['macd'], df['macdsignal'], df['macdhist'] = talib.MACD(df['close'])
+    df['upper_band'], df['middle_band'], df['lower_band'] = talib.BBANDS(df['close'])
 
-    # Drop rows with NaN values resulting from feature engineering
+    # Create a more meaningful target variable
+    # 1 if the close price in `future_periods` is higher than the current close, 0 otherwise
+    df['future_close'] = df['close'].shift(-future_periods)
+    df['target'] = (df['future_close'] > df['close']).astype(int)
+
+    # Drop rows with NaN values resulting from feature engineering and target creation
     df.dropna(inplace=True)
 
-    features = ['open', 'high', 'low', 'close', 'volume', 'returns', 'volatility']
+    features = [
+        'open', 'high', 'low', 'close', 'volume',
+        'returns', 'volatility', 'rsi', 'macd',
+        'macdsignal', 'macdhist', 'upper_band',
+        'middle_band', 'lower_band'
+    ]
     X = df[features]
     y = df['target']
 
@@ -86,7 +99,8 @@ def get_prediction(X: pd.DataFrame) -> int:
 
 if __name__ == '__main__':
     # Daily retraining pipeline
-    df = get_ohlc_data('1d', 60) # Fetch last 60 days of daily data
+    symbol = "NIFTY_F1"
+    df = get_ohlc_data('1d', 365*5, symbol) # Fetch last 5 years of daily data
 
     if not df.empty and len(df) > 21: # Need at least 21 days for volatility calculation
         X, y = prepare_data(df)

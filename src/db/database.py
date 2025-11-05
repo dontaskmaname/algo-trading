@@ -30,6 +30,7 @@ class OHLC(Base):
     close = Column(Float, nullable=False)
     volume = Column(Integer, nullable=False)
     interval = Column(String, nullable=False)
+    symbol = Column(String, nullable=False)
 
 class Signal(Base):
     """Trading signals data model."""
@@ -50,10 +51,18 @@ class Performance(Base):
     __tablename__ = 'performance'
 
     id = Column(Integer, primary_key=True)
-    signal_id = Column(Integer, nullable=False)
+    signal_id = Column(Integer, nullable=True)
     pnl = Column(Float, nullable=False)
     exit_price = Column(Float, nullable=False)
     exit_timestamp = Column(DateTime, nullable=False)
+
+class ManualLevel(Base):
+    """Manual support and resistance levels."""
+    __tablename__ = 'manual_levels'
+
+    id = Column(Integer, primary_key=True)
+    level_type = Column(String, nullable=False)  # 'support' or 'resistance'
+    price = Column(Float, nullable=False)
 
 def init_db():
     """Initializes the database and creates tables."""
@@ -63,6 +72,13 @@ def get_session():
     """Returns a new database session."""
     Session = sessionmaker(bind=engine)
     return Session()
+
+def clear_ohlc_data():
+    """Clears all data from the OHLC table."""
+    session = get_session()
+    session.query(OHLC).delete()
+    session.commit()
+    session.close()
 
 if __name__ == '__main__':
     # Create the database and tables
