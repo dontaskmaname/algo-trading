@@ -9,7 +9,7 @@ from src.analytics.indicators import (
 from src.pattern_engine.patterns import *
 from src.machine_learning.model import get_prediction, prepare_data
 from src.db.database import Signal
-from src.analytics.indicators import calculate_fibonacci_retracement
+from src.analytics.indicators import calculate_fibonacci_retracement, get_dynamic_levels
 import datetime as dt
 
 def generate_signals(nifty_5m: pd.DataFrame, nifty_1d: pd.DataFrame, banknifty_5m: pd.DataFrame):
@@ -25,7 +25,8 @@ def generate_signals(nifty_5m: pd.DataFrame, nifty_1d: pd.DataFrame, banknifty_5
 
     # 1. Analytics
     last_price = nifty_5m.iloc[-1]['close']
-    levels = get_support_resistance_levels(nifty_1d, last_price)
+    all_levels = get_support_resistance_levels(nifty_1d, last_price)
+    support_levels, resistance_levels = get_dynamic_levels(all_levels, last_price)
     nifty_5m['vwap'] = calculate_vwap(nifty_5m)
     nifty_5m['volume_sma'] = calculate_volume_sma(nifty_5m)
 
@@ -38,7 +39,7 @@ def generate_signals(nifty_5m: pd.DataFrame, nifty_1d: pd.DataFrame, banknifty_5
     fib_levels = calculate_fibonacci_retracement(nifty_5m)
     signal = fibonacci_rejection_strategy(nifty_5m, fib_levels)
     if not signal:
-        signal = pattern_based_strategy(nifty_5m, levels)
+        signal = pattern_based_strategy(nifty_5m, support_levels, resistance_levels)
 
     # 4. Signal Filtering
     # Apply the ML bias filter
@@ -51,29 +52,29 @@ def generate_signals(nifty_5m: pd.DataFrame, nifty_1d: pd.DataFrame, banknifty_5
         "signal": signal,
         "latest_price": latest_price,
         "ml_bias": ml_bias,
-        "levels": levels
+        "levels": all_levels
     }
 
-def pattern_based_strategy(df: pd.DataFrame, levels: dict) -> Signal:
+def pattern_based_strategy(df: pd.DataFrame, support_levels: dict, resistance_levels: dict) -> Signal:
     """
-    Generates signals based on candlestick patterns at key S/R levels.
+    Generates signals based on candlestick patterns at key dynamic S/R levels.
     """
     last_candle = df.iloc[-1]
     signal_type = None
 
     # Bullish patterns
     if is_hammer(df) or is_engulfing(df) == "bullish" or is_morning_star(df) or is_tweezers(df) == "bottom":
-        # Check for confluence with a support level
-        for level_type, level_price in levels.items():
-            if level_price and 'S' in level_type and abs(last_candle['low'] - level_price) < (last_candle['low'] * 0.002):
+        # Check for confluence with a dynamic support level
+        for level_type, level_price in support_levels.items():
+            if abs(last_candle['low'] - level_price) < (last_candle['low'] * 0.002):
                 signal_type = 'CE'
                 break
 
     # Bearish patterns
     if is_shooting_star(df) or is_engulfing(df) == "bearish" or is_evening_star(df) or is_tweezers(df) == "top":
-        # Check for confluence with a resistance level
-        for level_type, level_price in levels.items():
-            if level_price and 'R' in level_type and abs(last_candle['high'] - level_price) < (last_candle['high'] * 0.002):
+        # Check for confluence with a dynamic resistance level
+        for level_type, level_price in resistance_levels.items():
+            if abs(last_candle['high'] - level_price) < (last_candle['high'] * 0.002):
                 signal_type = 'PE'
                 break
 

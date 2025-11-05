@@ -230,10 +230,39 @@ def get_support_resistance_levels(df_daily: pd.DataFrame, current_price: float) 
     # Give priority to manual levels
     if manual_supports:
         levels['MANUAL_S'] = manual_supports
-    if manual_resistances:
-        levels['MANUAL_R'] = manual_resistances
+    # Consolidate all levels into a single dictionary
+    all_levels = {
+        "PDH": pdh, "PDL": pdl,
+        "PWH": pwh, "PWL": pwl,
+        "PMH": pmh, "PML": pml,
+        **pivots,
+        **psych_levels
+    }
 
-    return levels
+    # Add manual levels to the dictionary
+    for i, price in enumerate(manual_supports):
+        all_levels[f"MANUAL_S_{i}"] = price
+    for i, price in enumerate(manual_resistances):
+        all_levels[f"MANUAL_R_{i}"] = price
+
+    return all_levels
+
+def get_dynamic_levels(all_levels: dict, current_price: float) -> tuple:
+    """
+    Dynamically determines support and resistance levels based on the current price.
+    """
+    support_levels = {}
+    resistance_levels = {}
+
+    for name, price in all_levels.items():
+        if price is None:
+            continue
+        if price < current_price:
+            support_levels[f"S_{name}"] = price
+        else:
+            resistance_levels[f"R_{name}"] = price
+
+    return support_levels, resistance_levels
 
 def calculate_fibonacci_retracement(df: pd.DataFrame) -> dict:
     """
