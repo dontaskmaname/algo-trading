@@ -9,7 +9,8 @@ from src.analytics.indicators import (
 )
 from src.pattern_engine.patterns import *
 from src.machine_learning.model import get_prediction, prepare_data
-from src.signal_engine.engine import pullback_strategy, candle_body_filter
+from src.signal_engine.engine import pattern_based_strategy, fibonacci_rejection_strategy
+from src.analytics.indicators import calculate_fibonacci_retracement
 from src.db.database import Performance
 
 def log_trade(session, trade: Signal, exit_price: float, exit_timestamp: dt.datetime):
@@ -102,9 +103,13 @@ def run_backtest(sl_points: int = 15, tp_ratio: float = 1.0):
 
             last_price = df_5m_window.iloc[-1]['close']
             levels = get_support_resistance_levels(df_1d_window, last_price)
-            signal = pullback_strategy(df_5m_window)
+            fib_levels = calculate_fibonacci_retracement(df_5m_window)
 
-            if signal and signal.signal_type == ml_bias and candle_body_filter(df_5m_window):
+            signal = fibonacci_rejection_strategy(df_5m_window, fib_levels)
+            if not signal:
+                signal = pattern_based_strategy(df_5m_window, levels)
+
+            if signal and signal.signal_type == ml_bias:
                 signal.sl = signal.entry_price - sl_points if signal.signal_type == 'CE' else signal.entry_price + sl_points
                 signal.tp1 = signal.entry_price + (sl_points * tp_ratio) if signal.signal_type == 'CE' else signal.entry_price - (sl_points * tp_ratio)
                 active_trade = signal

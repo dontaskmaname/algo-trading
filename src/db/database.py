@@ -81,6 +81,17 @@ def clear_ohlc_data():
     session.close()
 
 if __name__ == '__main__':
-    # Create the database and tables
-    init_db()
-    print(f'Database initialized at {db_path}')
+    import argparse
+    parser = argparse.ArgumentParser(description="Initialize or re-initialize the database.")
+    parser.add_argument('--reinit', action='store_true', help="Delete and re-initialize the database.")
+    args = parser.parse_args()
+
+    if args.reinit:
+        if os.path.exists(db_path):
+            os.remove(db_path)
+            print(f"Deleted existing database at {db_path}")
+        init_db()
+        print(f'Database re-initialized at {db_path}')
+    else:
+        init_db()
+        print(f'Database initialized at {db_path}')
