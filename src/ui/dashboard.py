@@ -31,7 +31,7 @@ def make_layout() -> Layout:
     )
 
     layout["main"].split_row(Layout(name="side"), Layout(name="body", ratio=2))
-    layout["side"].split(Layout(name="info"), Layout(name="levels"))
+    layout["side"].split(Layout(name="info", minimum_size=5), Layout(name="levels", ratio=2))
     return layout
 
 def display_dashboard():
@@ -87,7 +87,11 @@ def display_dashboard():
             levels_table = Table(title="Support & Resistance")
             levels_table.add_column("Level", style="cyan")
             levels_table.add_column("Price", style="magenta")
-            for key, value in levels.items():
+
+            # Sort the levels by price for better readability
+            sorted_levels = sorted(levels.items(), key=lambda item: item[1] if item[1] is not None else float('inf'), reverse=True)
+
+            for key, value in sorted_levels:
                 if value:
                     levels_table.add_row(key, f"{value:.2f}")
             layout["levels"].update(Panel(levels_table, title="Key Levels"))
