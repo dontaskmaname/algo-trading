@@ -1,12 +1,14 @@
 import os
 import datetime as dt
 from fyers_apiv3 import fyersModel
+from fyers_apiv3.FyersWebsocket import FyersSocket
 from dotenv import load_dotenv
 import pandas as pd
 from sqlalchemy.orm import sessionmaker
 import webbrowser
 
 from src.db.database import OHLC, engine, clear_ohlc_data
+
 
 class FyersClient:
     """
@@ -101,6 +103,110 @@ class FyersClient:
         session.commit()
         session.close()
 
+class FyersSocketClient:
+    """
+    A client to interact with the Fyers WebSocket API v3.
+    """
+    def __init__(self, client_id: str, access_token: str, on_new_candle):
+        self.client_id = client_id
+        self.access_token = access_token
+        self.on_new_candle = on_new_candle
+        self.fyers_socket = None
+        self.data_type = "symbolData"
+        self.symbols = ["NSE:NIFTY50-INDEX", "NSE:NIFTYBANK-INDEX"]
+        self.ohlc_data = {}
+
+    def on_message(self, message):
+        """
+        Callback function to handle incoming messages from the WebSocket.
+        """
+        symbol_data = message
+        symbol = symbol_data['symbol']
+        ltp = symbol_data['ltp']
+        timestamp = dt.datetime.fromtimestamp(symbol_data['timestamp'])
+
+        if symbol not in self.ohlc_data:
+            self.ohlc_data[symbol] = {
+                'open': ltp,
+                'high': ltp,
+                'low': ltp,
+                'close': ltp,
+                'volume': 0,
+                'start_time': timestamp.replace(second=0, microsecond=0)
+            }
+
+        current_candle = self.ohlc_data[symbol]
+        current_candle['high'] = max(current_candle['high'], ltp)
+        current_candle['low'] = min(current_candle['low'], ltp)
+        current_candle['close'] = ltp
+
+        if timestamp >= current_candle['start_time'] + dt.timedelta(minutes=5):
+            # Store the completed candle
+            self.store_candle(symbol, current_candle)
+            # Start a new candle
+            self.ohlc_data[symbol] = {
+                'open': ltp,
+                'high': ltp,
+                'low': ltp,
+                'close': ltp,
+                'volume': 0,
+                'start_time': timestamp.replace(second=0, microsecond=0)
+            }
+
+    def on_error(self, message):
+        """
+        Callback function to handle errors from the WebSocket.
+        """
+        print(f"WebSocket Error: {message}")
+
+    def on_close(self, message):
+        """
+        Callback function to handle the WebSocket connection closing.
+        """
+        print(f"WebSocket Connection Closed: {message}")
+
+    def on_open(self):
+        """
+        Callback function to subscribe to symbols upon opening the WebSocket connection.
+        """
+        self.fyers_socket.subscribe(symbols=self.symbols, data_type=self.data_type)
+        self.fyers_socket.keep_running()
+
+    def store_candle(self, symbol, candle_data):
+        """
+        Stores a 5-minute OHLC candle in the database.
+        """
+        Session = sessionmaker(bind=engine)
+        session = Session()
+        ohlc = OHLC(
+            timestamp=candle_data['start_time'],
+            open=candle_data['open'],
+            high=candle_data['high'],
+            low=candle_data['low'],
+            close=candle_data['close'],
+            volume=candle_data['volume'],
+            interval='5m',
+            symbol=symbol
+        )
+        session.add(ohlc)
+        session.commit()
+        session.close()
+        print(f"Stored 5-minute candle for {symbol} at {candle_data['start_time']}")
+        self.on_new_candle(symbol)
+
+    def start_websocket(self):
+        """
+        Starts the WebSocket connection.
+        """
+        fyers_access_token = f"{self.client_id}:{self.access_token}"
+        self.fyers_socket = FyersSocket(access_token=fyers_access_token, log_path=os.path.join(os.path.dirname(__file__), '..', '..', 'logs'))
+        self.fyers_socket.on_message = self.on_message
+        self.fyers_socket.on_error = self.on_error
+        self.fyers_socket.on_close = self.on_close
+        self.fyers_socket.on_open = self.on_open
+        self.fyers_socket.connect()
+
+
 if __name__ == '__main__':
     # Example usage
     load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', 'auth', '.env'))
@@ -131,7 +237,7 @@ if __name__ == '__main__':
 
             if historical_data:
                 print(f"Storing {len(historical_data)} records...")
-                client.store_ohlc_data(historical_data, '1d', "NIFTY_F1")
+                client.store_ohlc_data(historical_data, '1d', nifty_daily_symbol)
                 print("Data stored successfully.")
 
             import time
@@ -146,7 +252,7 @@ if __name__ == '__main__':
         historical_data_5m = client.get_historical_data(nifty_5m_symbol, "5", "1", range_from_5m, range_to_5m, "1")
         if historical_data_5m:
             print(f"Storing {len(historical_data_5m)} records...")
-            client.store_ohlc_data(historical_data_5m, '5m', "NIFTY_F1")
+            client.store_ohlc_data(historical_data_5m, '5m', nifty_5m_symbol)
             print("Data stored successfully.")
 
         # --- Fetch 5-min Bank Nifty Data (60 days) ---
@@ -156,5 +262,5 @@ if __name__ == '__main__':
         historical_data_bn_5m = client.get_historical_data(banknifty_5m_symbol, "5", "1", range_from_5m, range_to_5m, "1")
         if historical_data_bn_5m:
             print(f"Storing {len(historical_data_bn_5m)} records...")
-            client.store_ohlc_data(historical_data_bn_5m, '5m', "BANKNIFTY_F1")
+            client.store_ohlc_data(historical_data_bn_5m, '5m', banknifty_5m_symbol)
             print("Data stored successfully.")

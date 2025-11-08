@@ -40,10 +40,9 @@ class Signal(Base):
     timestamp = Column(DateTime, nullable=False)
     signal_type = Column(String, nullable=False)  # 'CE' or 'PE'
     entry_price = Column(Float, nullable=False)
-    tp1 = Column(Float, nullable=False)
-    tp2 = Column(Float, nullable=False)
-    tp3 = Column(Float, nullable=False)
-    sl = Column(Float, nullable=False)
+    take_profit_levels = Column(String, nullable=False) # Comma-separated list of TP levels
+    stop_loss = Column(Float, nullable=False)
+    risk_reward_ratio = Column(Float, nullable=False)
     status = Column(String, default='active')  # 'active', 'closed'
 
 class Performance(Base):
