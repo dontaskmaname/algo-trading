@@ -72,7 +72,7 @@ def generate_signals(nifty_5m: pd.DataFrame, nifty_1d: pd.DataFrame, banknifty_5
     if not signal:
         signal = vwap_strategy(nifty_5m)
     if not signal:
-        signal = correlation_strategy(nifty_5m, banknifty_5m, correlation, correlation_bias)
+        signal = correlation_strategy(nifty_5m, banknifty_5m, correlation, correlation_bias, support_levels, resistance_levels)
     if not signal:
         fib_levels = calculate_fibonacci_retracement(nifty_5m)
         signal = fibonacci_rejection_strategy(nifty_5m, fib_levels)
@@ -131,7 +131,7 @@ def pattern_based_strategy(df: pd.DataFrame, support_levels: dict, resistance_le
 
     return None
 
-def correlation_strategy(nifty_df: pd.DataFrame, banknifty_df: pd.DataFrame, correlation: float, correlation_bias: str) -> Signal:
+def correlation_strategy(nifty_df: pd.DataFrame, banknifty_df: pd.DataFrame, correlation: float, correlation_bias: str, support_levels: dict, resistance_levels: dict) -> Signal:
     """
     Generates signals based on Nifty-BankNifty correlation.
     """
@@ -141,7 +141,7 @@ def correlation_strategy(nifty_df: pd.DataFrame, banknifty_df: pd.DataFrame, cor
         last_candle_nifty = nifty_df.iloc[-1]
         last_candle_banknifty = banknifty_df.iloc[-1]
         if last_candle_banknifty['close'] > last_candle_banknifty['open']:
-            tp_levels, sl, rr_ratio = calculate_dynamic_tp_sl(last_candle_nifty['close'], 'CE', nifty_df, nifty_df)
+            tp_levels, sl, rr_ratio = calculate_dynamic_tp_sl(last_candle_nifty['close'], 'CE', support_levels, resistance_levels)
             return Signal(
                 timestamp=dt.datetime.now(),
                 signal_type='CE',
@@ -157,7 +157,7 @@ def correlation_strategy(nifty_df: pd.DataFrame, banknifty_df: pd.DataFrame, cor
         last_candle_nifty = nifty_df.iloc[-1]
         last_candle_banknifty = banknifty_df.iloc[-1]
         if last_candle_banknifty['close'] < last_candle_banknifty['open']:
-            tp_levels, sl, rr_ratio = calculate_dynamic_tp_sl(last_candle_nifty['close'], 'PE', nifty_df, nifty_df)
+            tp_levels, sl, rr_ratio = calculate_dynamic_tp_sl(last_candle_nifty['close'], 'PE', support_levels, resistance_levels)
             return Signal(
                 timestamp=dt.datetime.now(),
                 signal_type='PE',

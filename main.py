@@ -1,9 +1,8 @@
 import time
 import threading
-from src.data_ingestion.fyers_client import FyersClient, FyersSocketClient
+from src.data_ingestion.fyers_client import FyersClient
 from src.db.database import init_db, get_session
 from src.machine_learning.model import train_model, prepare_data, get_ohlc_data
-from src.machine_learning.correlation_model import train_correlation_model, prepare_correlation_data
 from src.signal_engine.engine import generate_signals
 from src.ui.dashboard import display_dashboard, data_queue
 import os
@@ -68,7 +67,7 @@ def main():
     range_to = dt.date.today().strftime('%Y-%m-%d')
     range_from = (dt.date.today() - dt.timedelta(days=60)).strftime('%Y-%m-%d')
     nifty_symbol = 'NSE:NIFTY50-INDEX'
-    banknifty_symbol = 'NSE:NIFTYBANK-INDEX'
+    banknifty_futures_symbol = 'NSE:BANKNIFTY25NOVFUT'
 
     initial_data_fetched = False
     for res, interval in [('5', '5m'), ('15', '15m'), ('60', '1h'), ('D', '1d')]:
@@ -78,10 +77,10 @@ def main():
             fyers_client.store_ohlc_data(hist_data, interval, nifty_symbol)
             initial_data_fetched = True
 
-        print(f"Fetching {interval} data for {banknifty_symbol}...")
-        hist_data_banknifty = fyers_client.get_historical_data(banknifty_symbol, res, '1', range_from, range_to, '1')
-        if hist_data_banknifty:
-            fyers_client.store_ohlc_data(hist_data_banknifty, interval, banknifty_symbol)
+        print(f"Fetching {interval} data for {banknifty_futures_symbol}...")
+        hist_data_futures = fyers_client.get_historical_data(banknifty_futures_symbol, res, '1', range_from, range_to, '1')
+        if hist_data_futures:
+            fyers_client.store_ohlc_data(hist_data_futures, interval, banknifty_futures_symbol)
 
     if not initial_data_fetched:
         print("\n" + "="*50)
@@ -101,20 +100,11 @@ def main():
     else:
         print("Not enough data to train the model.")
 
-    print("Running daily correlation model retraining...")
-    nifty_5m_for_corr = get_ohlc_data('5m', 60, nifty_symbol)
-    banknifty_5m_for_corr = get_ohlc_data('5m', 60, banknifty_symbol)
-    if not nifty_5m_for_corr.empty and not banknifty_5m_for_corr.empty:
-        X_corr, y_corr = prepare_correlation_data(nifty_5m_for_corr, banknifty_5m_for_corr)
-        train_correlation_model(X_corr, y_corr)
-    else:
-        print("Not enough data to train the correlation model.")
-
     # 5. Generate initial data before starting dashboard
     print("Generating initial market data...")
     nifty_5m = get_ohlc_data('5m', 60, nifty_symbol)
     nifty_1d = get_ohlc_data('1d', 60, nifty_symbol)
-    banknifty_5m = get_ohlc_data('5m', 60, banknifty_symbol)
+    banknifty_5m = get_ohlc_data('5m', 60, banknifty_futures_symbol)
     initial_market_data = generate_signals(nifty_5m, nifty_1d, banknifty_5m)
     if initial_market_data:
         data_queue.put(initial_market_data)
@@ -123,67 +113,51 @@ def main():
             session = get_session()
             session.add(signal)
             session.commit()
-            # Eagerly load the attributes before closing the session
-            signal_type = signal.signal_type
-            entry_price = signal.entry_price
             session.close()
-            print(f"Stored initial signal: {signal_type} at {entry_price}")
+            print(f"Stored initial signal: {signal.signal_type} at {signal.entry_price}")
 
     # 6. Start the CLI dashboard in a separate thread
     dashboard_thread = threading.Thread(target=display_dashboard)
     dashboard_thread.daemon = True
     dashboard_thread.start()
 
-    # 7. Start the WebSocket client
-    fyers_socket_client = FyersSocketClient(client_id, access_token, on_new_candle=process_new_candle)
+    # 7. Main application loop
+    while True:
+        print("Fetching latest market data...")
+        # Fetch the latest 5-minute candle
+        range_to = dt.date.today().strftime('%Y-%m-%d')
+        range_from = (dt.date.today() - dt.timedelta(days=1)).strftime('%Y-%m-%d') # Fetch last day for latest candle
+        hist_data = fyers_client.get_historical_data(nifty_symbol, '5', '1', range_from, range_to, '1')
+        if hist_data:
+            fyers_client.store_ohlc_data(hist_data, '5m', nifty_symbol)
+            print("Latest Nifty 5m data fetched and stored.")
 
-    # Run the WebSocket client in a separate thread
-    websocket_thread = threading.Thread(target=fyers_socket_client.start_websocket)
-    websocket_thread.daemon = True
-    websocket_thread.start()
+        hist_data_futures = fyers_client.get_historical_data(banknifty_futures_symbol, '5', '1', range_from, range_to, '1')
+        if hist_data_futures:
+            fyers_client.store_ohlc_data(hist_data_futures, '5m', banknifty_futures_symbol)
+            print("Latest Bank Nifty Futures 5m data fetched and stored.")
 
-    # 8. Main application loop (now event-driven)
-    print("Main loop is now event-driven by the WebSocket client.")
-    print("Press Ctrl+C to exit.")
-    try:
-        while True:
-            # The main thread will now wait for new candles to be processed.
-            # We can also add other tasks here if needed.
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("Exiting application...")
+        print("Generating signals and market data...")
+        nifty_5m = get_ohlc_data('5m', 60, nifty_symbol)
+        nifty_1d = get_ohlc_data('1d', 60, nifty_symbol)
+        banknifty_5m = get_ohlc_data('5m', 60, banknifty_futures_symbol)
+        market_data = generate_signals(nifty_5m, nifty_1d, banknifty_5m)
 
-def process_new_candle(symbol: str):
-    """
-    This function is called when a new 5-minute candle is stored.
-    It generates signals and updates the dashboard.
-    """
-    print(f"New 5-minute candle received for {symbol}. Processing...")
+        if market_data:
+            # Always pass the latest market data to the dashboard
+            data_queue.put(market_data)
 
-    nifty_symbol = 'NSE:NIFTY50-INDEX'
-    banknifty_symbol = 'NSE:NIFTYBANK-INDEX'
+            # Store signal only if a new one was generated
+            signal = market_data.get("signal")
+            if signal:
+                session = get_session()
+                session.add(signal)
+                session.commit()
+                session.close()
+                print(f"Stored signal: {signal.signal_type} at {signal.entry_price}")
 
-    nifty_5m = get_ohlc_data('5m', 60, nifty_symbol)
-    nifty_1d = get_ohlc_data('1d', 60, nifty_symbol)
-    banknifty_5m = get_ohlc_data('5m', 60, banknifty_symbol)
-
-    market_data = generate_signals(nifty_5m, nifty_1d, banknifty_5m)
-
-    if market_data:
-        # Pass the latest market data to the dashboard
-        data_queue.put(market_data)
-
-        # Store signal only if a new one was generated
-        signal = market_data.get("signal")
-        if signal:
-            session = get_session()
-            session.add(signal)
-            session.commit()
-            # Eagerly load the attributes before closing the session
-            signal_type = signal.signal_type
-            entry_price = signal.entry_price
-            session.close()
-            print(f"Stored signal: {signal_type} at {entry_price}")
+        print("Waiting for the next 5-minute interval...")
+        time.sleep(300) # Wait for 5 minutes before the next update
 
 if __name__ == '__main__':
     main()

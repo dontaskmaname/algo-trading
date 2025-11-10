@@ -67,18 +67,28 @@ def init_db():
     """Initializes the database and creates tables."""
     Base.metadata.create_all(engine)
 
-Session = scoped_session(sessionmaker(bind=engine))
+session_factory = sessionmaker(bind=engine)
+Session = scoped_session(session_factory)
 
 def get_session():
-    """Returns a new database session."""
+    """Provides a thread-local session."""
     return Session()
+
+def remove_session():
+    """Removes the current thread's session."""
+    Session.remove()
 
 def clear_ohlc_data():
     """Clears all data from the OHLC table."""
     session = get_session()
-    session.query(OHLC).delete()
-    session.commit()
-    session.close()
+    try:
+        session.query(OHLC).delete()
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        remove_session()
 
 if __name__ == '__main__':
     import argparse
