@@ -123,8 +123,11 @@ def main():
             session = get_session()
             session.add(signal)
             session.commit()
+            # Eagerly load the attributes before closing the session
+            signal_type = signal.signal_type
+            entry_price = signal.entry_price
             session.close()
-            print(f"Stored initial signal: {signal.signal_type} at {signal.entry_price}")
+            print(f"Stored initial signal: {signal_type} at {entry_price}")
 
     # 6. Start the CLI dashboard in a separate thread
     dashboard_thread = threading.Thread(target=display_dashboard)
@@ -176,8 +179,11 @@ def process_new_candle(symbol: str):
             session = get_session()
             session.add(signal)
             session.commit()
+            # Eagerly load the attributes before closing the session
+            signal_type = signal.signal_type
+            entry_price = signal.entry_price
             session.close()
-            print(f"Stored signal: {signal.signal_type} at {signal.entry_price}")
+            print(f"Stored signal: {signal_type} at {entry_price}")
 
 if __name__ == '__main__':
     main()

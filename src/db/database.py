@@ -1,7 +1,7 @@
 import os
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, scoped_session
 
 # Define the database path
 data_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'data')
@@ -67,9 +67,10 @@ def init_db():
     """Initializes the database and creates tables."""
     Base.metadata.create_all(engine)
 
+Session = scoped_session(sessionmaker(bind=engine))
+
 def get_session():
     """Returns a new database session."""
-    Session = sessionmaker(bind=engine)
     return Session()
 
 def clear_ohlc_data():

@@ -1,7 +1,7 @@
 import os
 import datetime as dt
 from fyers_apiv3 import fyersModel
-from fyers_apiv3.FyersWebsocket import FyersSocket
+from fyers_apiv3.FyersWebsocket import data_ws
 from dotenv import load_dotenv
 import pandas as pd
 from sqlalchemy.orm import sessionmaker
@@ -199,12 +199,17 @@ class FyersSocketClient:
         Starts the WebSocket connection.
         """
         fyers_access_token = f"{self.client_id}:{self.access_token}"
-        self.fyers_socket = FyersSocket(access_token=fyers_access_token, log_path=os.path.join(os.path.dirname(__file__), '..', '..', 'logs'))
-        self.fyers_socket.on_message = self.on_message
-        self.fyers_socket.on_error = self.on_error
-        self.fyers_socket.on_close = self.on_close
-        self.fyers_socket.on_open = self.on_open
-        self.fyers_socket.connect()
+        self.fyers_socket = data_ws.FyersDataSocket(
+            access_token=fyers_access_token,
+            log_path=os.path.join(os.path.dirname(__file__), '..', '..', 'logs'),
+            litemode=False,
+            write_to_file=False,
+            reconnect=True,
+            on_connect=self.on_open,
+            on_close=self.on_close,
+            on_error=self.on_error,
+            on_message=self.on_message
+        )
 
 
 if __name__ == '__main__':
