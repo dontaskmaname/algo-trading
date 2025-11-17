@@ -1,7 +1,7 @@
 import os
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, scoped_session
 
 # Define the database path
 data_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'data')
@@ -40,10 +40,9 @@ class Signal(Base):
     timestamp = Column(DateTime, nullable=False)
     signal_type = Column(String, nullable=False)  # 'CE' or 'PE'
     entry_price = Column(Float, nullable=False)
-    tp1 = Column(Float, nullable=False)
-    tp2 = Column(Float, nullable=False)
-    tp3 = Column(Float, nullable=False)
-    sl = Column(Float, nullable=False)
+    take_profit_levels = Column(String, nullable=False) # Comma-separated list of TP levels
+    stop_loss = Column(Float, nullable=False)
+    risk_reward_ratio = Column(Float, nullable=False)
     status = Column(String, default='active')  # 'active', 'closed'
 
 class Performance(Base):
@@ -68,17 +67,28 @@ def init_db():
     """Initializes the database and creates tables."""
     Base.metadata.create_all(engine)
 
+session_factory = sessionmaker(bind=engine)
+Session = scoped_session(session_factory)
+
 def get_session():
-    """Returns a new database session."""
-    Session = sessionmaker(bind=engine)
+    """Provides a thread-local session."""
     return Session()
+
+def remove_session():
+    """Removes the current thread's session."""
+    Session.remove()
 
 def clear_ohlc_data():
     """Clears all data from the OHLC table."""
     session = get_session()
-    session.query(OHLC).delete()
-    session.commit()
-    session.close()
+    try:
+        session.query(OHLC).delete()
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        remove_session()
 
 if __name__ == '__main__':
     import argparse

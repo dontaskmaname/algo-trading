@@ -217,6 +217,7 @@ def get_support_resistance_levels(df_daily: pd.DataFrame, current_price: float) 
     pwh, pwl = calculate_previous_week_high_low(df_daily)
     pmh, pml = calculate_previous_month_high_low(df_daily)
     pivots = calculate_camarilla_pivots(df_daily)
+    cpr = calculate_cpr(df_daily)
     psych_levels = calculate_psychological_levels(current_price)
 
     levels = {
@@ -224,6 +225,7 @@ def get_support_resistance_levels(df_daily: pd.DataFrame, current_price: float) 
         "PWH": pwh, "PWL": pwl,
         "PMH": pmh, "PML": pml,
         **pivots,
+        **cpr,
         **psych_levels
     }
 
@@ -285,6 +287,64 @@ def calculate_fibonacci_retracement(df: pd.DataFrame) -> dict:
         'FIB_R_500': swing_low + (price_range * 0.5),
         'FIB_R_618': swing_low + (price_range * 0.618),
     }
+
+def calculate_average_body_size(df: pd.DataFrame, window: int = 5) -> float:
+    """
+    Calculates the average body size of the last N candles.
+
+    Args:
+        df (pd.DataFrame): A DataFrame containing OHLC data.
+        window (int): The number of candles to average.
+
+    Returns:
+        float: The average body size.
+    """
+    if len(df) < window:
+        return 0.0
+
+    body_sizes = abs(df['close'] - df['open'])
+    return body_sizes.tail(window).mean()
+
+def calculate_correlation(df1: pd.DataFrame, df2: pd.DataFrame, window: int = 20) -> float:
+    """
+    Calculates the rolling correlation between the close prices of two dataframes.
+
+    Args:
+        df1 (pd.DataFrame): The first dataframe.
+        df2 (pd.DataFrame): The second dataframe.
+        window (int): The rolling window for the correlation.
+
+    Returns:
+        float: The latest correlation value.
+    """
+    if df1.empty or df2.empty or len(df1) < window or len(df2) < window:
+        return 0.0
+
+    # Ensure the dataframes are aligned by timestamp
+    merged_df = pd.merge(df1, df2, on='timestamp', suffixes=('_1', '_2'))
+    if len(merged_df) < window:
+        return 0.0
+
+    correlation = merged_df['close_1'].rolling(window=window).corr(merged_df['close_2'])
+    return correlation.iloc[-1]
+
+def calculate_cpr(df: pd.DataFrame) -> dict:
+    """
+    Calculates Central Pivot Range (CPR).
+    """
+    if df.empty:
+        return {}
+
+    last_day = df.iloc[-1]
+    high = last_day['high']
+    low = last_day['low']
+    close = last_day['close']
+
+    pivot = (high + low + close) / 3
+    bc = (high + low) / 2
+    tc = (pivot - bc) + pivot
+
+    return {'CPR_TOP': tc, 'CPR_PIVOT': pivot, 'CPR_BOTTOM': bc}
 
 if __name__ == '__main__':
     # Example usage

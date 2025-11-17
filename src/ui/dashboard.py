@@ -43,44 +43,54 @@ def display_dashboard():
 
     start_time = time.time()
     data_received = False
-    with Live(layout, screen=True, redirect_stderr=False, refresh_per_second=5) as live:
+    with Live(layout, screen=True, redirect_stderr=False) as live:
         latest_price = "N/A"
         ml_bias = "N/A"
+        correlation = "N/A"
+        correlation_bias = "N/A"
         levels = {}
         while True:
-            # Get the latest data from the queue
-            if not data_queue.empty():
-                data = data_queue.get()
+            # Block until new data is available
+            try:
+                data = data_queue.get(timeout=30) # Wait for 30 seconds
                 latest_price = data.get("latest_price", "N/A")
                 ml_bias = data.get("ml_bias", "N/A")
+                correlation = data.get("correlation", "N/A")
+                correlation_bias = data.get("correlation_bias", "N/A")
                 levels = data.get("levels", {})
                 data_received = True
+            except queue.Empty:
+                # If no data is received for a while, show a waiting message
+                if not data_received:
+                    info_panel = Panel(
+                        Text(
+                            "Waiting for initial data from the main application...\n"
+                            "This could take a moment. If this persists, check the main console.",
+                            justify="left"
+                        ),
+                        title="[bold yellow]Status[/bold yellow]"
+                    )
+                    layout["info"].update(info_panel)
+                    live.update(layout)
+                continue
 
             # Header
             header = Panel(Text(f"NIFTY AI Trading Dashboard | Last Updated: {time.ctime()}", justify="center"))
             layout["header"].update(header)
 
             # Info Panel
-            if not data_received and (time.time() - start_time) > 30:
-                info_panel = Panel(
-                    Text(
-                        "Waiting for data from the main application...\n"
-                        "If this persists, there may be an issue with data fetching.\n"
-                        "Please check the main console for errors.",
-                        justify="left"
-                    ),
-                    title="[bold yellow]Status[/bold yellow]"
-                )
-            else:
-                price_text = f"[bold green]{latest_price:.2f}[/bold green]" if isinstance(latest_price, (int, float)) else "N/A"
-                info_panel = Panel(
-                    Text(
-                        f"NIFTY Price: {price_text}\n"
-                        f"ML Bias: [bold cyan]{ml_bias}[/bold cyan]",
-                        justify="left"
-                    ),
-                    title="Market Info"
-                )
+            price_text = f"[bold green]{latest_price:.2f}[/bold green]" if isinstance(latest_price, (int, float)) else "N/A"
+            correlation_text = f"{correlation:.2f}" if isinstance(correlation, (int, float)) else "N/A"
+            info_panel = Panel(
+                Text(
+                    f"NIFTY Price: {price_text}\n"
+                    f"ML Bias: [bold cyan]{ml_bias}[/bold cyan]\n"
+                    f"Correlation: [bold yellow]{correlation_text}[/bold yellow]\n"
+                    f"Correlation Bias: [bold magenta]{correlation_bias}[/bold magenta]",
+                    justify="left"
+                ),
+                title="Market Info"
+            )
             layout["info"].update(info_panel)
 
             # Support and Resistance Panel
@@ -122,9 +132,6 @@ def display_dashboard():
 
             # Footer - for future use
             layout["footer"].update(Panel("Logs will be displayed here.", title="Log"))
-
-            live.update(layout)
-            time.sleep(1) # Refresh rate is handled by Live, but a small sleep can prevent high CPU usage
 
 if __name__ == "__main__":
     # Example of how to use the queue
